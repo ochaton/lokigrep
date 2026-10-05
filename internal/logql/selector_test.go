@@ -132,6 +132,8 @@ func TestStreamSelectors(t *testing.T) {
 		{"*", []string{`{namespace=~".+"}`}},
 		{"prod.web.api-*", []string{`{cluster="eu-prod", namespace="web", pod=~"api-.*"}`}},
 		{"prod.~web-(app|ml)", []string{`{cluster="eu-prod", namespace=~"web-(app|ml)"}`}},
+		{"web.api-0", []string{`{namespace="web", pod=~"api-0(-([a-z0-9]{5}|[0-9]+))?"}`}},
+		{"prod.web.etl-1", []string{`{cluster="eu-prod", namespace="web", pod=~"etl-1(-([a-z0-9]{5}|[0-9]+))?"}`}},
 		// same cluster, two namespaces: collapses into one query
 		{"prod.web,prod.ingress", []string{`{cluster="eu-prod", namespace=~"(ingress|web)"}`}},
 		// not a product: one query per selector
@@ -211,5 +213,31 @@ func TestAmbiguous(t *testing.T) {
 	}
 	if got, want := Ambiguous(sc, sels), []bool{true, true, true}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("two namespaces: got %v, want %v", got, want)
+	}
+
+	sels, err = ParseSelectors("prod.web.api-0", sc, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := Ambiguous(sc, sels), []bool{false, false, true}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("exact pod: got %v, want %v", got, want)
+	}
+}
+
+func TestExpandPodPat(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"", ""},
+		{"*", "*"},
+		{"api-*", "api-*"},
+		{"~foo", "~foo"},
+		{"api-0", `~api-0(-([a-z0-9]{5}|[0-9]+))?`},
+		{"foo.bar", `~foo\.bar(-([a-z0-9]{5}|[0-9]+))?`},
+	}
+	for _, c := range cases {
+		if got := expandPodPat(c.in); got != c.want {
+			t.Errorf("expandPodPat(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }

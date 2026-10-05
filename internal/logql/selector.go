@@ -35,11 +35,13 @@ func orStar(s string) string {
 //	web                  -> any cluster, namespace web, any pod
 //	prod.web             -> "prod" is a cluster alias, so it shifts left
 //	eu-prod.*     -> that cluster, any namespace and pod
-//	web.api-0            -> namespace web, single pod
+//	web.api-0            -> namespace web, pod or Job api-0
 //	prod.web.api-*       -> pod glob
 //	~web-(app|ml)        -> raw regex for that level
 //
 // Fields accept * and ? globs, or a leading ~ for a raw regular expression.
+// An exact pod token matches that pod and pods of a Kubernetes Job of the
+// same name; if both exist, both streams are returned.
 // override, when set, replaces the outermost level on every selector.
 func ParseSelectors(spec string, sc *Schema, override string) ([]Selector, error) {
 	spec = strings.TrimSpace(spec)
@@ -182,6 +184,9 @@ func LevelValues(sels []Selector, i int) []string {
 func (s *Schema) streamSelector(values [][]string) string {
 	matchers := make([]string, 0, len(values))
 	for i, pats := range values {
+		if s.labels[i].Name == "pod" {
+			pats = expandPodPats(pats)
+		}
 		if m := labelMatcher(s.labels[i].Name, pats); m != "" {
 			matchers = append(matchers, m)
 		}
@@ -258,6 +263,28 @@ func Ambiguous(sc *Schema, sels []Selector) []bool {
 	for i := range out {
 		vals := LevelValues(sels, i)
 		out[i] = len(vals) != 1 || vals[0] == "" || isPatternGlob(vals[0])
+		if !out[i] && sc.Name(i) == "pod" {
+			// an exact pod token also matches Job pods of the same name
+			out[i] = true
+		}
 	}
 	return out
+}
+
+// expandPodPats turns an exact pod name into a pattern that also matches
+// Kubernetes Job pods: "{name}-{5 alphanumeric}" (non-indexed) or "{name}-{n}"
+// (indexed completions). Globs and raw regexes are left alone.
+func expandPodPats(pats []string) []string {
+	out := make([]string, len(pats))
+	for i, p := range pats {
+		out[i] = expandPodPat(p)
+	}
+	return out
+}
+
+func expandPodPat(p string) string {
+	if p == "" || p == "*" || isPatternGlob(p) {
+		return p
+	}
+	return "~" + regexp.QuoteMeta(p) + `(-([a-z0-9]{5}|[0-9]+))?`
 }

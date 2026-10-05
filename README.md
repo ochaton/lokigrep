@@ -107,6 +107,7 @@ lokigrep -s prod.web -t '30m/' -o json END= | jq -r .line
 lokigrep -l                                      # every namespace with logs
 lokigrep -l -c prod                              # only that cluster
 lokigrep --values pod -s prod.web                # what else can I query?
+lokigrep -s prod.batch.etl-run-1 -t '1h/'        # that pod, or Job pods of that name
 ```
 
 ## Selector `-s`
@@ -121,8 +122,15 @@ Comma separated, one dotted spec per selector. Missing parts mean "any".
 | `eu-prod.*` | every namespace and pod of that cluster |
 | `web,ingress` | two namespaces |
 | `prod.~web-(app\|ml)` | `~` passes a raw regex through |
+| `prod.batch.etl-1` | pod `etl-1` and pods of Job `etl-1` |
 
 `-c` sets the outermost level for every selector at once.
+
+An exact value on `pod` matches that pod and, if a Kubernetes Job has the
+same name, that Job's pods (`{name}-{5 alphanumeric}`, or `{name}-{n}` for
+indexed completions). If both exist, both streams are printed. Globs and `~`
+regexes are not rewritten. Loki's `job` label is the scrape target, not the
+Job object — do not use it for this.
 
 Selectors that form a full product over the levels collapse into a single LogQL
 query; anything else runs one query per selector and the results are merged in
